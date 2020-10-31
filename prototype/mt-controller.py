@@ -49,7 +49,7 @@ class SimpleController(EventMixin):
         #self.mac_to_port = MacStore()
 
         # placeholder change this to 5s on actual
-        self.DEFAULT_TTL = 15
+        self.DEFAULT_TTL = 60
 
 
     def learning_switch(self, event):
@@ -270,6 +270,22 @@ class SimpleController(EventMixin):
         pox.openflow.spanning_tree._update_tree()
         self.mac_to_port.clear()
         self.mac_to_port = {}
+
+        # remove all flows
+        
+        msg_flow = of.ofp_flow_mod()
+        msg_flow.match = of.ofp_match()
+        msg_flow.command = of.OFPFC_DELETE
+
+        #msg_flow.match.dl_dst = dst_mac
+        #msg_flow.match.dl_src = src_mac
+        #msg_flow.actions.append(of.ofp_action_output(port = dst_port))
+        #event.connection.send(msg_flow)
+
+        log.info("begin iter all switches?")
+        for connection in core.openflow._connections.values():
+            log.info(connection)
+            connection.send(msg_flow)
 
         log.info("###### Port Status end\n")
         
