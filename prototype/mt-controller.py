@@ -48,11 +48,15 @@ class SimpleController(EventMixin):
         self.mac_to_port = {}
         #self.mac_to_port = MacStore()
 
-        # placeholder
-        self.DEFAULT_TTL = 5
+        # placeholder change this to 5s on actual
+        self.DEFAULT_TTL = 15
 
 
     def learning_switch(self, event):
+
+        log.info(self.mac_to_port)
+
+
         # packet_in is actual packet
         packet = event.parsed
         packet_in = event.ofp
@@ -67,6 +71,9 @@ class SimpleController(EventMixin):
         dst = (switch_dpid, dst_mac)
         
         ip_packet = packet.payload
+
+        if not self.mac_to_port:
+            pox.openflow.spanning_tree._update_tree()
 
         if src not in self.mac_to_port:
             """
@@ -92,12 +99,12 @@ class SimpleController(EventMixin):
             # this prevents a reply to this req from causing another FLOOD
             # and only one flood out this time
             """
-            print self.mac_to_port
-            self.mac_to_port.pop(dst, None)
-            print self.mac_to_port
+            #print self.mac_to_port
+            #self.mac_to_port.pop(dst, None)
+            #print self.mac_to_port
 
-            # update spanning tree since it could be possible that a link is down 
-            pox.openflow.spanning_tree._update_tree()
+            ## update spanning tree since it could be possible that a link is down 
+            #pox.openflow.spanning_tree._update_tree()
 
 
         # this will only run in the ARP reply not req
@@ -105,6 +112,7 @@ class SimpleController(EventMixin):
             dst_port = self.mac_to_port[dst]
 
             # install 2-way flow
+            log.info("Installing Flow for Switch: " + str(switch_dpid))
             self.insert_mac_flow(event, src_mac, dst_mac, dst_port)
 
             # install other way flow
@@ -116,6 +124,16 @@ class SimpleController(EventMixin):
 
             # lets send the packet and assumes installing the flow eats up the pkt
             self.send_to_port(event, dst_port)
+
+
+            """
+            # delete destination and source record after flow installd,
+            # this prevents stale data should link go down
+            """
+            #print self.mac_to_port
+            #self.mac_to_port.pop(dst, None)
+            #self.mac_to_port.pop(src, None)
+            #print self.mac_to_port
 
 
         else:
@@ -138,7 +156,8 @@ class SimpleController(EventMixin):
         msg_flow.match.dl_src = src_mac
         msg_flow.actions.append(of.ofp_action_output(port = dst_port))
         log.info("#### msg_flow start ###")
-        log.info(msg_flow)
+        #log.info(msg_flow)
+        log.info("port: " + str(dst_port))
         log.info("#### msg_flow end ###")
         event.connection.send(msg_flow)
     
@@ -246,6 +265,12 @@ class SimpleController(EventMixin):
           action = "modified"
         print "Port %s on Switch %s has been %s." % (event.port, event.dpid, action)
         #log.info(packet)
+
+        # update spanning tree since it could be possible that a link is down 
+        pox.openflow.spanning_tree._update_tree()
+        self.mac_to_port.clear()
+        self.mac_to_port = {}
+
         log.info("###### Port Status end\n")
         
 
