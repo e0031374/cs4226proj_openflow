@@ -12,6 +12,33 @@ import json
 
 log = core.getLogger()
 
+class MacStore:
+    def __init__(self, default_ttl=None):
+        self.mac_to_port = {}
+        self.DEFAULT_TTL = default_ttl
+
+    def put(self, switch_dpid, mac_address, port):
+        key = (switch_dpid, mac_address)
+        val = (port, self.DEFAULT_TTL)
+        if key in self.mac_to_port:
+            # update
+            old_val = self.get(switch_dpid, mac_address)
+        else:
+            self.mac_to_port[key] = val
+
+    def get(self, switch_dpid, mac_address):
+        key = (switch_dpid, mac_address)
+        val = self.mac_to_port[key]
+        port = val[0]
+        return port
+
+    def contains(self, switch_dpid, mac_address):
+        key = (switch_dpid, mac_address)
+        return self.__contains__(key)
+
+    def __contains__(self, key):
+        return key in self.mac_to_port
+
 class SimpleController(EventMixin):
     def __init__(self):
         self.listenTo(core.openflow)
@@ -19,6 +46,10 @@ class SimpleController(EventMixin):
 
         # https://gist.github.com/devvesa/5332005
         self.mac_to_port = {}
+        #self.mac_to_port = MacStore()
+
+        # placeholder
+        self.DEFAULT_TTL = 5
 
 
     def learning_switch(self, event):
@@ -34,11 +65,7 @@ class SimpleController(EventMixin):
         # construct key
         src = (switch_dpid, src_mac)
         dst = (switch_dpid, dst_mac)
-
-        # placeholder
-        DEFAULT_TTL = 5
-
-
+        
         ip_packet = packet.payload
 
         if src not in self.mac_to_port:
@@ -47,15 +74,31 @@ class SimpleController(EventMixin):
             # we cannot install flow here because then we wont get the reply
             # all the info we need is in self.mac_to_port
             """
+            #self.mac_to_port.put(switch_dpid, src_mac, port)
             self.mac_to_port[src] = packet_in.in_port
             print "Learning that " + str(packet.src) + " is attached to switch: " + str(switch_dpid) + " at port: " + str(packet_in.in_port)
 
         else:
             # if source is already is store, we can update port perhaps?
             # dst is mac
-            print "placeholder"
             #dst_port = self.mac_to_port[dst]
             #self.insert_mac_flow(event, dst, dst_port)
+
+            self.mac_to_port[src] = packet_in.in_port
+            print "Updating that " + str(packet.src) + " is attached to switch: " + str(switch_dpid) + " at port: " + str(packet_in.in_port)
+
+            """
+            # delete destination record, await update
+            # this prevents a reply to this req from causing another FLOOD
+            # and only one flood out this time
+            """
+            print self.mac_to_port
+            self.mac_to_port.pop(dst, None)
+            print self.mac_to_port
+
+            # update spanning tree since it could be possible that a link is down 
+            pox.openflow.spanning_tree._update_tree()
+
 
         # this will only run in the ARP reply not req
         if dst in self.mac_to_port:
@@ -89,6 +132,7 @@ class SimpleController(EventMixin):
     def insert_mac_flow(self, event, src_mac, dst_mac, dst_port):
         # install flow rather than send
         msg_flow = of.ofp_flow_mod()
+        msg_flow.idle_timeout = self.DEFAULT_TTL
         msg_flow.match = of.ofp_match()
         msg_flow.match.dl_dst = dst_mac
         msg_flow.match.dl_src = src_mac
@@ -178,6 +222,33 @@ class SimpleController(EventMixin):
 
     def _handle_ConnectionUp(self, event):
         log.info("Switch %s has come up.", dpid_to_str(event.dpid))
+
+    def _handle_ConnectionDown(self, event):
+        log.info("Switch %s has come down.", dpid_to_str(event.dpid))
+
+    def _handle_FlowRemoved(self, event):
+        log.info("###### Segment begin")
+        log.info("Packet")
+        packet = event.parsed
+        log.info(packet)
+        log.info("Switch %s has flow removed.", dpid_to_str(event.dpid))
+        log.info("###### Segment end\n")
+
+    def _handle_PortStatus(self, event):
+        log.info("###### Port Status begin")
+        log.info("PortStatus")
+
+        if event.added:
+          action = "added"
+        elif event.deleted:
+          action = "removed"
+        else:
+          action = "modified"
+        print "Port %s on Switch %s has been %s." % (event.port, event.dpid, action)
+        #log.info(packet)
+        log.info("###### Port Status end\n")
+        
+
 
 def launch ():
     # Run discovery and spanning tree modules
