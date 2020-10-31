@@ -21,32 +21,35 @@ class SimpleController(EventMixin):
         self.mac_to_port = {}
 
 
-    def learning_switch(self, packet, packet_in, event):
+    def learning_switch(self, event):
         # packet_in is actual packet
-        src = packet.src        # source MAC address
-        dst = packet.dst
+        packet = event.parsed
+        packet_in = event.ofp
         inport = event.port
+
+        switch_dpid = event.dpid
+        src_mac = packet.src        # source MAC address
+        dst_mac = packet.dst
+
+        # construct key
+        src = (switch_dpid, src_mac)
+        dst = (switch_dpid, dst_mac)
+
+        # placeholder
+        DEFAULT_TTL = 5
+
 
         ip_packet = packet.payload
 
         if src not in self.mac_to_port:
+            """
             # add port to mac mapping to database
-            self.mac_to_port[src] = packet_in.in_port
-            print "Learning that " + str(packet.src) + " is attached at port " + str(packet_in.in_port)
-
-            # install flow
             # we cannot install flow here because then we wont get the reply
             # all the info we need is in self.mac_to_port
             """
-            msg_flow = of.ofp_flow_mod()
-            msg_flow.match = of.ofp_match()
-            msg_flow.match.dl_dst = src
-            msg_flow.actions.append(of.ofp_action_output(port = inport))
-            log.info("#### msg_flow start ###")
-            log.info(msg_flow)
-            log.info("#### msg_flow end ###")
-            event.connection.send(msg_flow)
-            """
+            self.mac_to_port[src] = packet_in.in_port
+            print "Learning that " + str(packet.src) + " is attached to switch: " + str(switch_dpid) + " at port: " + str(packet_in.in_port)
+
         else:
             # if source is already is store, we can update port perhaps?
             # dst is mac
@@ -58,69 +61,30 @@ class SimpleController(EventMixin):
         if dst in self.mac_to_port:
             dst_port = self.mac_to_port[dst]
 
-            """
-            # send it out the specific port
-            msg = of.ofp_packet_out()
-            msg.data = packet_in
+            # install 2-way flow
+            self.insert_mac_flow(event, src_mac, dst_mac, dst_port)
 
-            dst_port = self.mac_to_port[dst]
-
-            # add action to send packet out specified port
-            action = of.ofp_action_output(port = dst_port)
-            msg.actions.append(action)
-
-            # send message to switch
-            event.connection.send(msg)
-            """
-
-
-            # install flow rather than send
-            """
-            msg_flow = of.ofp_flow_mod()
-            #msg_flow.match = of.ofp_match.from_packet(packet)
-            msg_flow.match = of.ofp_match()
-            #msg_flow.match.dl_type = 0x800
-            msg_flow.match.dl_dst = dst
-            #msg_flow.match.nw_dst = IPAddr(ip_packet.protosrc)
-            msg_flow.actions.append(of.ofp_action_output(port = dst_port))
-            log.info("#### msg_flow start ###")
-            log.info(msg_flow)
-            log.info("#### msg_flow end ###")
-            event.connection.send(msg_flow)
-            """
-            self.insert_mac_flow(event, src, dst, dst_port)
+            # install other way flow
+            reverse_dst = (switch_dpid, src_mac)
+            self.insert_mac_flow(event, dst_mac, src_mac, self.mac_to_port[reverse_dst])
+            
 
             print str(packet.dst) + " destination known. only send message to it"
 
             # lets send the packet and assumes installing the flow eats up the pkt
-            # TODO meeting now, wait who are we sending to?
             self.send_to_port(event, dst_port)
 
 
         else:
+            """
+            # destination unknown
             # instructs switch flood all ports with the packet
-            # does not instal entry to flow table
-            self.send_to_port(event, of.OFPP_ALL)
-
-            #msg = of.ofp_packet_out()
-            #msg.data = packet_in
-
-            ## add action to send packet out all ports
-            #action = of.ofp_action_output(port = of.OFPP_ALL)
-            #msg.actions.append(action)
-
-            ## send message to switch
-            #event.connection.send(msg)
+            # does not install entry to flow table, we need 2-way connection
+            """
+            self.send_to_port(event, of.OFPP_FLOOD)
 
             print str(packet.dst) + " not known, resend to everybody"
 
-            # modify flow table to flood all ports, subseq packets will not be
-            # sent to controller
-            # https://pox-dev.noxrepo.narkive.com/yqy9JuDC/usage-ofp-flow-mod-and-ofp-packet-out-messages
-            ## ofp_flow_mod: flow table modification
-            #msg = of.ofp_flow_mod()
-            #msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
-            #event.connection.send(msg)
 
     def insert_mac_flow(self, event, src_mac, dst_mac, dst_port):
         # install flow rather than send
@@ -154,16 +118,19 @@ class SimpleController(EventMixin):
 
     def _handle_PacketIn(self, event):
         packet = event.parsed
+        packet_in = event.ofp
         dpid = event.dpid
         src = packet.src        # source MAC address
         dst = packet.dst
         inport = event.port
 
         ## added
-        log.info("Packet\n")
+        log.info("###### Segment begin")
+        log.info("Packet")
         log.info(packet)
+        log.info("switch dpid: " + str(dpid))
 
-        log.info("IP\n")
+        log.info("IP")
         arp_packet = packet.payload
 
         log.info(arp_packet)
@@ -189,9 +156,8 @@ class SimpleController(EventMixin):
         #    event.connection.send(arp_msg)
 
 
-        packet_in = event.ofp
         #log.info("### packet ofp: " + str(packet_in))
-        self.learning_switch(packet, packet_in, event)
+        self.learning_switch(event)
 
             
                 
@@ -206,7 +172,8 @@ class SimpleController(EventMixin):
         ##event.connection.send(msg)
         #########
 
-        log.info("# S%i: Message sent: Outport %i\n", dpid, of.OFPP_FLOOD)
+        #log.info("# S%i: Message sent: Outport %i\n", dpid, of.OFPP_FLOOD)
+        log.info("###### Segment End\n")
 
 
     def _handle_ConnectionUp(self, event):
