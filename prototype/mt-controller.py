@@ -10,34 +10,74 @@ from pox.lib.addresses import IPAddr, EthAddr
 
 import json
 
+import sys
+
 log = core.getLogger()
 
-class MacStore:
-    def __init__(self, default_ttl=None):
-        self.mac_to_port = {}
-        self.DEFAULT_TTL = default_ttl
+REGULAR_PRIORITY = 1000 # of.OFP_DEFAULT_PRIORITY
+FIREWALL_PRIORITY = 2000 # of.OFP_DEFAULT_PRIORITY + 100
 
-    def put(self, switch_dpid, mac_address, port):
-        key = (switch_dpid, mac_address)
-        val = (port, self.DEFAULT_TTL)
-        if key in self.mac_to_port:
-            # update
-            old_val = self.get(switch_dpid, mac_address)
-        else:
-            self.mac_to_port[key] = val
 
-    def get(self, switch_dpid, mac_address):
-        key = (switch_dpid, mac_address)
-        val = self.mac_to_port[key]
-        port = val[0]
-        return port
+class Policy:
+    def __init__(self):
+        self.firewall = []
+        self.premium = []
 
-    def contains(self, switch_dpid, mac_address):
-        key = (switch_dpid, mac_address)
-        return self.__contains__(key)
+    def parse(self):
+        #input_path = input("Input policy path: ")
+        #input_path = input_path.split()
 
-    def __contains__(self, key):
-        return key in self.mac_to_port
+        #if not len(input_path):
+        #    print "no policy found"
+        #    return
+
+        #print "policy found: " + str(input_path)
+
+        #hasPolicy = input("Does policy.in exist in the same level: [y/n]: ")
+        #hasPolicy = hasPolicy.strip()
+        #hasPolicy = hasPolicy.lower()
+        #if hasPolicy[0] != 'y':
+        #    return
+            
+        input_path = "policy.in"
+
+        f = open(input_path, "r")
+
+        cmdline = f.readline()
+        cmdline = cmdline.strip()
+        cmd_arr = cmdline.split()
+        firewall_lines = int(cmd_arr[0])
+        premium_lines = int(cmd_arr[1])
+
+        for i in range(firewall_lines):
+            line = f.readline()
+            line = line.strip()
+            line_arr = line.split(",")
+            if len(line_arr) == 2:
+                dst_ip_address = line_arr[0]
+                dst_port = line_arr[1]
+                self.firewall.append({ 
+                    "dst_ip_address": dst_ip_address, 
+                    "dst_port": dst_port 
+                })
+            elif len(line_arr) == 3:
+                src_ip_address = line_arr[0]
+                dst_ip_address = line_arr[1]
+                dst_port = line_arr[2]
+                self.firewall.append({ 
+                    "src_ip_address": src_ip_address, 
+                    "dst_ip_address": dst_ip_address, 
+                    "dst_port": dst_port 
+                })
+            else:
+                log.info("\n !!! ERROR !!! \n")
+
+        log.info("\n" + str(self.firewall) + "\n")
+
+
+
+        
+
 
 class SimpleController(EventMixin):
     def __init__(self):
@@ -151,12 +191,13 @@ class SimpleController(EventMixin):
         # install flow rather than send
         msg_flow = of.ofp_flow_mod()
         msg_flow.idle_timeout = self.DEFAULT_TTL
+        msg_flow.priority = REGULAR_PRIORITY
         msg_flow.match = of.ofp_match()
         msg_flow.match.dl_dst = dst_mac
         msg_flow.match.dl_src = src_mac
         msg_flow.actions.append(of.ofp_action_output(port = dst_port))
         log.info("#### msg_flow start ###")
-        #log.info(msg_flow)
+        log.info(msg_flow)
         log.info("port: " + str(dst_port))
         log.info("#### msg_flow end ###")
         event.connection.send(msg_flow)
@@ -176,8 +217,144 @@ class SimpleController(EventMixin):
 
         # send message to switch
         event.connection.send(msg)
-            
+
+
+    # return false if no firewall rule was activated
+    # this may NOT mean that the packet send falls under the rule
+    # since it could just be a h5 ping h2, 
+    def firewall_protocol(self, event):
+        packet = event.parsed
+        src_mac = packet.src        # source MAC address
+        dst_mac = packet.dst
+
+        if src_mac == EthAddr("ff:ff:ff:ff:ff:ff") or dst_mac == EthAddr("ff:ff:ff:ff:ff:ff"):
+            log.info("### src or dst is broadcast ###")
+            return False
+
+        #ip_packet = packet.payload
+        ip_packet = packet.next
+
+        if packet.type == packet.ARP_TYPE:
+            src_ip = ip_packet.protosrc
+            dst_ip = ip_packet.protodst
+        else:
+            src_ip = ip_packet.srcip
+            dst_ip = ip_packet.dstip
+
+        log.info("\n\n###### Firewall begin")
+        log.info(ip_packet)
+        log.info(src_ip)
+        log.info(dst_ip)
+
+        r1 = self.insert_firewall_flow(dst_ip, src_ip, dst_mac, src_mac, packet)
+        r2 = self.insert_firewall_flow(src_ip, dst_ip, src_mac, dst_mac, packet)
+
+        log.info("###### Firewall end\n")
+
+        return r1 or r2
+
+    ## TODO problem with second set of tests
+    ##      also what if ARP was already established before?
+    ##      Eg a ping was sent before, and a flow was installed, subsequent ones will bypass
+    def insert_firewall_flow(self, dst_ip, src_ip, dst_mac, src_mac, packet):
+        #all_block = [ s for s in policy.firewall if len(s.items()) == 2]
+        #target_block = [ s for s in policy.firewall if len(s.items()) == 3]
+        potential_rules = [ s for s in policy.firewall if s["dst_ip_address"] ==  dst_ip ]
+        log.info(potential_rules)
+        potential_rules = [ s for s in potential_rules if (s["src_ip_address"] == src_ip if "src_ip_address" in s else True) ]
+
+        log.info(potential_rules)
+        if len(potential_rules) <= 0:
+            log.info("### No Potential Rules ###")
+            return False
+
+        for rule in potential_rules:
+            log.info("Insert Firewall Rule")
+            log.info(rule)
+            msg_flow = of.ofp_flow_mod()
+            msg_flow.match = of.ofp_match()
+            #msg_flow.command = of.OFPFC_DELETE
+            #msg_flow.match.dl_dst = EthAddr(dst_mac)
+            #msg_flow.match.dl_src = EthAddr(src_mac)
+
+            # IP Protocol set to TCP
+            msg_flow.priority = FIREWALL_PRIORITY
+            msg_flow.match.nw_proto = 6
+            msg_flow.match.dl_type = 0x800
+
+            if "src_ip_address" in rule:
+                msg_flow.match.nw_src = (IPAddr(rule["src_ip_address"]), 32)
+                msg_flow.match.dl_src = EthAddr(src_mac)
+            else:
+                log.info("!!! WILDCARD FIREWALL RULE ADDED !!!")
+            if "dst_ip_address" in rule:
+                msg_flow.match.nw_dst = (IPAddr(rule["dst_ip_address"]), 32)
+                msg_flow.match.dl_dst = EthAddr(dst_mac)
+            if "dst_port" in rule:
+                msg_flow.match.tp_dst = int(rule["dst_port"])
+
+            msg_flow.actions.append(of.ofp_action_output(port = of.OFPP_NONE))
+            log.info(msg_flow)
+
+            log.info("begin iter all switches?")
+            for connection in core.openflow._connections.values():
+                log.info(connection)
+                connection.send(msg_flow)
+
+
+        # check if we need to drop the packet
+        src_mac = packet.src        # source MAC address
+        dst_mac = packet.dst
+        if packet.type != packet.IP_TYPE:
+            log.info("#### Packet not IP TYPE ####")
+            return False
+        ip_packet = packet.next
+
+        if ip_packet.protocol != ip_packet.TCP_PROTOCOL:
+            log.info("#### Packet not TCP TYPE ####")
+            return False
+        tcp_packet = ip_packet.next
+
+        def firewall_match(rule):
+            if "src_ip_address" in rule and ip_packet.srcip != rule["src_ip_address"]:
+                return False
+            if "dst_ip_address" in rule and ip_packet.dstip != rule["dst_ip_address"]:
+                return False
+            if "dst_port" in rule and tcp_packet.dstport != rule["dst_port"]:
+                return False
+            log.info("#### Packet Rule Match ####")
+            return True
+
+        return any([firewall_match(rule) for rule in potential_rules])
+        #return True
         
+        
+
+    def apply_firewall(self):
+
+        for rule in policy.firewall:
+            msg_flow = of.ofp_flow_mod()
+            msg_flow.match = of.ofp_match()
+            #msg_flow.command = of.OFPFC_DELETE
+
+            # IP Protocol set to TCP
+            msg_flow.match.nw_proto = 6
+
+            if "src_ip_address" in rule:
+                msg_flow.match.nw_src = rule["src_ip_address"]
+            if "dst_ip_address" in rule:
+                msg_flow.match.nw_dst = rule["dst_ip_address"]
+            if "dst_port" in rule:
+                msg_flow.match.tp_dst = rule["dst_port"]
+
+            msg_flow.actions.append(of.ofp_action_output(port = of.OFPP_NONE))
+
+            log.info("begin iter all switches?")
+            for connection in core.openflow._connections.values():
+                log.info(connection)
+                connection.send(msg_flow)
+        
+
 
     def _handle_PacketIn(self, event):
         packet = event.parsed
@@ -220,11 +397,13 @@ class SimpleController(EventMixin):
 
 
         #log.info("### packet ofp: " + str(packet_in))
-        self.learning_switch(event)
-
-            
-                
-
+        #self.firewall_protocol(event)
+        #self.learning_switch(event)
+        if not self.firewall_protocol(event):
+            log.info("no firewall rule detected")
+            self.learning_switch(event)
+        else:
+            log.info("firewall rule should have activated")
         
 
 
@@ -272,26 +451,31 @@ class SimpleController(EventMixin):
         self.mac_to_port = {}
 
         # remove all flows
-        
+        self.delete_flows()
+
+        log.info("###### Port Status end\n")
+
+    def delete_flows(self):
         msg_flow = of.ofp_flow_mod()
         msg_flow.match = of.ofp_match()
         msg_flow.command = of.OFPFC_DELETE
-
-        #msg_flow.match.dl_dst = dst_mac
-        #msg_flow.match.dl_src = src_mac
-        #msg_flow.actions.append(of.ofp_action_output(port = dst_port))
-        #event.connection.send(msg_flow)
 
         log.info("begin iter all switches?")
         for connection in core.openflow._connections.values():
             log.info(connection)
             connection.send(msg_flow)
 
-        log.info("###### Port Status end\n")
+
+        
         
 
+policy = Policy()
 
 def launch ():
+
+    policy.parse()
+
+
     # Run discovery and spanning tree modules
     pox.openflow.discovery.launch()
     pox.openflow.spanning_tree.launch()
