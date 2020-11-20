@@ -31,9 +31,6 @@ class TreeTopo(Topo):
     		m_switches = cmd_arr[1]
     		l_links = cmd_arr[2]
     		
-    		print cmdline
-    		print cmdline.split()
-
 		store = {}
 		global link_store
 		
@@ -43,16 +40,16 @@ class TreeTopo(Topo):
 			h = i + 1
 			name = 'h%d' % h
 			ip = '10.0.0.%d/8' % h
-			print ip
+			#print ip
 			host = self.addHost(name, ip=ip)
 			store[name] = host
 
 		for i in range(int(m_switches)):
 			s = i + 1
 			name = 's%d' % s
-			print name
+			#print name
     			sconfig = {'dpid': "%016x" % s}
-			print sconfig
+			#print sconfig
     			switch = self.addSwitch(name, **sconfig)
 			store[name] = switch
 
@@ -62,22 +59,16 @@ class TreeTopo(Topo):
 			line = f.readline()
 			line = line.strip()
 			line_arr = line.split(",")
-			print line_arr
+			#print line_arr
 
 			link_store[line_arr[0]][line_arr[1]] = {'bw': int(line_arr[2])}
 			link_store[line_arr[1]][line_arr[0]] = {'bw': int(line_arr[2])}
 
-    			#linkconfig = {'bw': int(line_arr[2]), 'loss': 0}
-    			#linkconfig = {'bw': 100, 'loss': 0}
-			#self.addLink(line_arr[0], line_arr[1], bw=int(line_arr[2]), loss=0)
-
-    			#linkconfig = {'bw': int(line_arr[2])}
-			#self.addLink(line_arr[0], line_arr[1], **linkconfig)
 			self.addLink(line_arr[0], line_arr[1])
 
-		print store
-		print link_store
-		print "######## end topo ##########"
+		#print store
+		#print link_store
+		#print "######## end topo ##########"
 
 	# Add hosts
     # > self.addHost('h%d' % [HOST NUMBER])
@@ -106,14 +97,14 @@ def startNetwork(f):
     net.start()
 
     info('** CHECK QOS\n')
-    print net.topo.g.edge
+    #print net.topo.g.edge
 
     switchLinks = {}
     for switch in net.switches:
 	switchLinks[switch.name] = net.topo.g.edge[switch.name]
-    print switchLinks
+    #print switchLinks
     flat1 = [v for (k,v) in switchLinks.items()]
-    print flat1
+    #print flat1
     flat2 = [v for ele in flat1 for (k,v) in ele.items()]
     flat3 = [v for ele in flat2 for (k,v) in ele.items()]
     """
@@ -123,11 +114,11 @@ def startNetwork(f):
     port2: src_port
     bw: 100Mbps
     """
-    print flat3
-    print len(flat3)
+    #print flat3
+    #print len(flat3)
 
 
-    print "ADDING QoS QUEUES"
+    #print "ADDING QoS QUEUES"
     for link in flat3:
     # 16 links src are all switches
     # only doing for switches, so src only
@@ -138,7 +129,7 @@ def startNetwork(f):
 	intf = src_name + "-eth" + port_no
 	#bw = link["bw"] * 1000000
 	global link_store
-	print link_store
+	#print link_store
 	bw = link_store[src_name][dst_name]["bw"] * 1000000
 	bw_str = str(bw)
 	premium_bw = str(int(0.8 * bw))
@@ -148,16 +139,14 @@ def startNetwork(f):
     	         -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s \
     	         -- --id=@q1 create queue other-config:min-rate=%s \
     	         -- --id=@q2 create queue other-config:max-rate=%s'
-    	#cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos \
-    	#         -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 \
-    	#         -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s \
-    	#         -- --id=@q1 create queue other-config:min-rate=%s \
-    	#         -- --id=@q2 create queue other-config:max-rate=%s'
-    	#cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s -- --id=@q1 create queue other-config:min-rate=%s -- --id=@q2 create queue other-config:max-rate=%s'
 	str_info = (intf, bw_str, bw_str, bw_str, premium_bw, normal_bw)
 	cmd = cmd_format % str_info
-	print(cmd)
+	str_log = "qos port: %s, max-rate=%s,\n(q0, max=%s, min=%s), (q1, min=%s), (q2, max=%s)\n"
+    	info(str_log%str_info)
+		
+	#print(cmd)
 	os.system(cmd)
+    	info("\n\n")
 	
 	
     info('** END QOS\n')
@@ -185,7 +174,7 @@ if __name__ == '__main__':
     input_path = "topology.in"
 
     if len(sys.argv) >= 2:
-        print sys.argv[1]
+        #print sys.argv[1]
 	input_path = sys.argv[1]
     f = open(input_path, "r")
 

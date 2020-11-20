@@ -29,20 +29,6 @@ class Policy:
         self.premium = set()
 
     def parse(self):
-        #input_path = input("Input policy path: ")
-        #input_path = input_path.split()
-
-        #if not len(input_path):
-        #    print "no policy found"
-        #    return
-
-        #print "policy found: " + str(input_path)
-
-        #hasPolicy = input("Does policy.in exist in the same level: [y/n]: ")
-        #hasPolicy = hasPolicy.strip()
-        #hasPolicy = hasPolicy.lower()
-        #if hasPolicy[0] != 'y':
-        #    return
             
         input_path = "policy.in"
 
@@ -96,7 +82,6 @@ class SimpleController(EventMixin):
 
         # https://gist.github.com/devvesa/5332005
         self.mac_to_port = {}
-        #self.mac_to_port = MacStore()
 
         # placeholder change this to 5s on actual
         self.DEFAULT_TTL = 60
@@ -140,7 +125,6 @@ class SimpleController(EventMixin):
             # we cannot install flow here because then we wont get the reply
             # all the info we need is in self.mac_to_port
             """
-            #self.mac_to_port.put(switch_dpid, src_mac, port)
             self.mac_to_port[src] = packet_in.in_port
             print "Learning that " + str(packet.src) + " is attached to switch: " + str(switch_dpid) + " at port: " + str(packet_in.in_port)
 
@@ -400,31 +384,6 @@ class SimpleController(EventMixin):
         arp_packet = packet.payload
 
         log.info(arp_packet)
-        #log.info(arp_packet.hwsrc)
-        #log.info(arp_packet.hwdst)
-        #log.info(arp_packet.protosrc)
-        #log.info(arp_packet.protodst)
-        
-        #if packet.type == packet.ARP_TYPE:
-        #    log.info("ARP Packet")
-        #    
-        #    arp_msg = of.ofp_flow_mod()
-        #    arp_msg.match = of.ofp_match()
-        #    arp_msg.match.dl_type = 0x800
-        #    # match incoming IP destination
-        #    #arp_msg.match.nw_dst = arp_packet.protosrc
-        #    arp_msg.match.nw_dst = IPAddr(arp_packet.protosrc)
-        #    #arp_msg.actions.append(ofp_action_dl_addr(dl_addr=src))
-
-        #    # set output port of undetected 
-        # https://noxrepo.github.io/pox-doc/html/#set-ethernet-source-or-destination-address
-        #    arp_msg.actions.append(of.ofp_action_output(port = inport))
-        #    event.connection.send(arp_msg)
-
-
-        #log.info("### packet ofp: " + str(packet_in))
-        #self.firewall_protocol(event)
-        #self.learning_switch(event)
         if not self.firewall_protocol(event):
             log.info("no firewall rule detected")
             self.learning_switch(event)
