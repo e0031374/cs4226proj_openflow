@@ -1,6 +1,6 @@
 '''
-Please add your name:
-Please add your matric number: 
+Please add your name: Ong Yin Ming Jonas
+Please add your matric number: A0155237E
 '''
 
 import os
@@ -107,17 +107,10 @@ def startNetwork(f):
 
     info('** CHECK QOS\n')
     print net.topo.g.edge
-#    for link in net.links:
-#    	print link
-#
-    for switch in net.switches:
-	print switch.name
-	#print switch.intfs
-	#print ".. next .."
+
     switchLinks = {}
     for switch in net.switches:
 	switchLinks[switch.name] = net.topo.g.edge[switch.name]
-	#[net.topo.g.edge[switch.name] for switch in net.switches]
     print switchLinks
     flat1 = [v for (k,v) in switchLinks.items()]
     print flat1
@@ -135,10 +128,6 @@ def startNetwork(f):
 
 
     print "ADDING QoS QUEUES"
-    #c_f = "sudo ovs-vsctl -- set Port s3-eth1 qos=@newqos -- set Port s3-eth2 qos=@newqos -- set Port s3-eth3 qos=@newqos -- set Port s3-eth4 qos=@newqos -- set Port s1-eth1 qos=@newqos -- set Port s1-eth2 qos=@newqos -- set Port s1-eth3 qos=@newqos -- set Port s1-eth4 qos=@newqos -- set Port s1-eth5 qos=@newqos -- set Port s2-eth1 qos=@newqos -- set Port s2-eth2 qos=@newqos -- set Port s2-eth3 qos=@newqos -- set Port s2-eth4 qos=@newqos -- set Port s4-eth1 qos=@newqos -- set Port s4-eth2 qos=@newqos -- set Port s4-eth3 qos=@newqos -- --id=@newqos create QoS type=linux-htb other-config:max-rate=1000000000 queues=0=@q0,1=@q1 -- --id=@q0 create Queue other-config:min-rate=1000000 other-config:max-rate=1000000 -- --id=@q1 create Queue other-config:min-rate=1000000000 other-config:max-rate=1000000000"
-    #print c_f
-    #os.system(c_f)
-    #os.system("sudo ovs-vsctl -- set Port s1-eth1 qos=@newqos -- --id=@newqos create QoS type=linux-htb other-config:max-rate=1000000000 queues=0=@q0,1=@q1 -- --id=@q0 create Queue other-config:min-rate=1000000 other-config:max-rate=1000000 -- --id=@q1 create Queue other-config:min-rate=1000000000 other-config:max-rate=1000000000")
     for link in flat3:
     # 16 links src are all switches
     # only doing for switches, so src only
@@ -150,25 +139,22 @@ def startNetwork(f):
 	#bw = link["bw"] * 1000000
 	global link_store
 	print link_store
-	#bw = 10000000
 	bw = link_store[src_name][dst_name]["bw"] * 1000000
 	bw_str = str(bw)
 	premium_bw = str(int(0.8 * bw))
 	normal_bw = str(int(0.5 * bw))
+    	cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos \
+    	         -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 \
+    	         -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s \
+    	         -- --id=@q1 create queue other-config:min-rate=%s \
+    	         -- --id=@q2 create queue other-config:max-rate=%s'
     	#cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos \
     	#         -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 \
     	#         -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s \
     	#         -- --id=@q1 create queue other-config:min-rate=%s \
     	#         -- --id=@q2 create queue other-config:max-rate=%s'
-    	#cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos \
-    	#         -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 \
-    	#         -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s \
-    	#         -- --id=@q1 create queue other-config:min-rate=%s \
-    	#         -- --id=@q2 create queue other-config:max-rate=%s'
-    	cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s -- --id=@q1 create queue other-config:min-rate=%s -- --id=@q2 create queue other-config:max-rate=%s'
+    	#cmd_format = 'sudo ovs-vsctl -- set Port %s qos=@newqos -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%s queues=0=@q0,1=@q1,2=@q2 -- --id=@q0 create queue other-config:max-rate=%s other-config:min-rate=%s -- --id=@q1 create queue other-config:min-rate=%s -- --id=@q2 create queue other-config:max-rate=%s'
 	str_info = (intf, bw_str, bw_str, bw_str, premium_bw, normal_bw)
-	#ppp = str(3000)
-	#str_info = (intf, ppp, ppp, ppp, ppp, ppp)
 	cmd = cmd_format % str_info
 	print(cmd)
 	os.system(cmd)
