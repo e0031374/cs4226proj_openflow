@@ -21,7 +21,7 @@ FIREWALL_PRIORITY = 2000 # of.OFP_DEFAULT_PRIORITY + 100
 class Policy:
     def __init__(self):
         self.firewall = []
-        self.premium = []
+        self.premium = set()
 
     def parse(self):
         #input_path = input("Input policy path: ")
@@ -74,6 +74,11 @@ class Policy:
 
         log.info("\n" + str(self.firewall) + "\n")
 
+        for i in range(premium_lines):
+            line = f.readline()
+            line = line.strip()
+            self.premium.add(line)
+
 
 
         
@@ -110,7 +115,16 @@ class SimpleController(EventMixin):
         src = (switch_dpid, src_mac)
         dst = (switch_dpid, dst_mac)
         
-        ip_packet = packet.payload
+        ip_packet = packet.next
+
+        if packet.type == packet.ARP_TYPE:
+            src_ip = ip_packet.protosrc
+            dst_ip = ip_packet.protodst
+        else:
+            src_ip = ip_packet.srcip
+            dst_ip = ip_packet.dstip
+
+
 
         if not self.mac_to_port:
             pox.openflow.spanning_tree._update_tree()
@@ -153,11 +167,15 @@ class SimpleController(EventMixin):
 
             # install 2-way flow
             log.info("Installing Flow for Switch: " + str(switch_dpid))
-            self.insert_mac_flow(event, src_mac, dst_mac, dst_port)
+            qid_alpha = 1 if str(src_ip) in policy.premium else 2
+            self.insert_mac_flow(event, src_mac, dst_mac, dst_port, qid_alpha)
+            #self.insert_mac_flow(event, src_mac, dst_mac, dst_port)
 
             # install other way flow
+            qid_beta = 1 if str(dst_ip) in policy.premium else 2
+            print dst_ip
             reverse_dst = (switch_dpid, src_mac)
-            self.insert_mac_flow(event, dst_mac, src_mac, self.mac_to_port[reverse_dst])
+            self.insert_mac_flow(event, dst_mac, src_mac, self.mac_to_port[reverse_dst], qid_beta)
             
 
             print str(packet.dst) + " destination known. only send message to it"
@@ -187,7 +205,7 @@ class SimpleController(EventMixin):
             print str(packet.dst) + " not known, resend to everybody"
 
 
-    def insert_mac_flow(self, event, src_mac, dst_mac, dst_port):
+    def insert_mac_flow(self, event, src_mac, dst_mac, dst_port, qid):
         # install flow rather than send
         msg_flow = of.ofp_flow_mod()
         msg_flow.idle_timeout = self.DEFAULT_TTL
@@ -195,10 +213,13 @@ class SimpleController(EventMixin):
         msg_flow.match = of.ofp_match()
         msg_flow.match.dl_dst = dst_mac
         msg_flow.match.dl_src = src_mac
-        msg_flow.actions.append(of.ofp_action_output(port = dst_port))
+        #msg_flow.actions.append(of.ofp_action_output(port = dst_port))
+        msg_flow.actions.append(of.ofp_action_enqueue(port = dst_port, queue_id = qid))
+        ## TODO ADD QUEUID NEED FIND IP ADDR OF PKT
         log.info("#### msg_flow start ###")
         log.info(msg_flow)
         log.info("port: " + str(dst_port))
+        log.info("qid: " + str(qid))
         log.info("#### msg_flow end ###")
         event.connection.send(msg_flow)
     
